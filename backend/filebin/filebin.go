@@ -275,7 +275,6 @@ func (o *Object) Remove(ctx context.Context) error {
     return err
 }
 
-// Check interfaces are satisfied
 var (
     _ fs.Fs     = (*Fs)(nil)
     _ fs.Object = (*Object)(nil)
