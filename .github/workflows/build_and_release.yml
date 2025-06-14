@@ -62,12 +62,11 @@ jobs:
       - name: Set environment variables
         shell: bash
         run: |
-          {
-            echo "GOTAGS=${{ matrix.gotags }}"
-            echo "BUILD_FLAGS=${{ matrix.build_flags }}"
-            echo "BUILD_ARGS=${{ matrix.build_args }}"
-            echo "CGO_ENABLED=${{ matrix.cgo || '1' }}"
-          } >> "$GITHUB_ENV"
+          echo 'GOTAGS=${{ matrix.gotags }}' >> $GITHUB_ENV
+          echo 'BUILD_FLAGS=${{ matrix.build_flags }}' >> $GITHUB_ENV
+          echo 'BUILD_ARGS=${{ matrix.build_args }}' >> $GITHUB_ENV
+          if [[ "${{ matrix.goarch }}" != "" ]]; then echo 'GOARCH=${{ matrix.goarch }}' >> $GITHUB_ENV ; fi
+          if [[ "${{ matrix.cgo }}" != "" ]]; then echo 'CGO_ENABLED=${{ matrix.cgo }}' >> $GITHUB_ENV ; fi
 
       - name: Install Libraries on Linux
         shell: bash
