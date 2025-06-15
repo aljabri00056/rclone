@@ -66,4 +66,5 @@ import (
 	_ "github.com/rclone/rclone/backend/webdav"
 	_ "github.com/rclone/rclone/backend/yandex"
 	_ "github.com/rclone/rclone/backend/zoho"
+	_ "github.com/rclone/rclone/backend/teldrive"
 )
