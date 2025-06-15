@@ -1,0 +1,38 @@
+name: Sync teldrive Directory
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * *'   # every day at 00:00 UTC
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout destination repo
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_PAT }} # you must use PAT to trigger workflows
+          fetch-depth: 0
+
+      - name: Checkout source repo
+        uses: actions/checkout@v4
+        with:
+          repository: tgdrive/rclone
+          path: tgdrive-src
+
+      - name: Copy teldrive folder
+        run: |
+          rm -rf backend/teldrive
+          cp -R tgdrive-src/backend/teldrive backend/teldrive
+
+      - name: Commit & push changes
+        uses: stefanzweifel/git-auto-commit-action@v6
+        with:
+          commit_message: "🔄 Sync backend/teldrive from tgdrive/rclone"
+          commit_user_name: github-actions
+          commit_user_email: github-actions@github.com
+          file_pattern: backend/teldrive/**

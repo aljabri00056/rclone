@@ -1,0 +1,198 @@
+name: Build and Release Rclone
+
+on:
+  push:
+    branches:
+      - 'master'
+  workflow_dispatch:
+
+jobs:
+  build:
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - job_name: linux
+            os: ubuntu-latest
+            go: '>=1.24.0-rc.1'
+            gotags: cmount
+            cgo: '0'
+            build_flags: '-include "^(linux/amd64|linux/arm64|linux/arm-v7)"'
+
+          - job_name: windows
+            os: windows-latest
+            go: '>=1.24.0-rc.1'
+            gotags: cmount
+            cgo: '0'
+            build_flags: '-include "^(windows/amd64|windows/arm64)"'
+            build_args: '-buildmode exe'
+          
+          - job_name: mac_amd64
+            os: macos-latest
+            go: '>=1.24.0-rc.1'
+            gotags: 'cmount'
+            build_flags: '-include "^darwin/amd64" -cgo'
+
+          - job_name: mac_arm64
+            os: macos-latest
+            go: '>=1.24.0-rc.1'
+            gotags: 'cmount'
+            build_flags: '-include "^darwin/arm64" -cgo -macos-arch arm64 -cgo-cflags=-I/usr/local/include -cgo-ldflags=-L/usr/local/lib'
+
+    name: ${{ matrix.job_name }}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+          check-latest: true
+
+      - name: Set environment variables
+        shell: bash
+        run: |
+          echo 'GOTAGS=${{ matrix.gotags }}' >> $GITHUB_ENV
+          echo 'BUILD_FLAGS=${{ matrix.build_flags }}' >> $GITHUB_ENV
+          echo 'BUILD_ARGS=${{ matrix.build_args }}' >> $GITHUB_ENV
+          if [[ "${{ matrix.cgo }}" != "" ]]; then echo 'CGO_ENABLED=${{ matrix.cgo }}' >> $GITHUB_ENV ; fi
+
+      - name: Install Libraries on Linux
+        shell: bash
+        run: |
+          sudo modprobe fuse
+          sudo chmod 666 /dev/fuse
+          sudo chown root:$USER /etc/fuse.conf
+          sudo apt-get update
+          sudo apt-get install -y fuse3 libfuse-dev rpm pkg-config git-annex git-annex-remote-rclone nfs-common
+        if: matrix.os == 'ubuntu-latest'
+
+      - name: Install Libraries on macOS
+        shell: bash
+        run: |
+          # https://github.com/Homebrew/brew/issues/15621#issuecomment-1619266788
+          # https://github.com/orgs/Homebrew/discussions/4612#discussioncomment-6319008
+          unset HOMEBREW_NO_INSTALL_FROM_API
+          brew untap --force homebrew/core
+          brew untap --force homebrew/cask
+          brew update
+          brew install --cask macfuse
+          brew install git-annex git-annex-remote-rclone
+        if: matrix.os == 'macos-latest'
+
+      - name: Install Libraries on Windows
+        shell: powershell
+        run: |
+          $ProgressPreference = 'SilentlyContinue'
+          choco install -y winfsp zip
+          echo "CPATH=C:\Program Files\WinFsp\inc\fuse;C:\Program Files (x86)\WinFsp\inc\fuse" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          if ($env:GOARCH -eq "386") {
+            choco install -y mingw --forcex86 --force
+            echo "C:\\ProgramData\\chocolatey\\lib\\mingw\\tools\\install\\mingw32\\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          }
+          # Copy mingw32-make.exe to make.exe so the same command line
+          # can be used on Windows as on macOS and Linux
+          $path = (get-command mingw32-make.exe).Path
+          Copy-Item -Path $path -Destination (Join-Path (Split-Path -Path $path) 'make.exe')
+        if: matrix.os == 'windows-latest'
+
+      - name: Print Go version and environment
+        shell: bash
+        run: |
+          printf "Using go at: $(which go)\n"
+          printf "Go version: $(go version)\n"
+          printf "\n\nGo environment:\n\n"
+          go env
+          printf "\n\nRclone environment:\n\n"
+          make vars
+          printf "\n\nSystem environment:\n\n"
+          env
+
+      - name: Build rclone
+        shell: bash
+        run: |
+          if [[ "${{ matrix.os }}" == "ubuntu-latest" ]]; then
+            make release_dep_linux
+          fi
+
+          # Read the rclone version from the VERSION file
+          RELEASE_TAG=$(<VERSION)
+          echo "🏷  Using RELEASE_TAG=$RELEASE_TAG"
+
+          CROSS_COMPILE_CMD="go run bin/cross-compile.go $BUILD_FLAGS -tags \"$GOTAGS\" $BUILD_ARGS \"$RELEASE_TAG\""
+          
+          echo "🔨 Executing: $CROSS_COMPILE_CMD"
+          eval "$CROSS_COMPILE_CMD"
+
+      - name: Upload Binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: rclone-${{ matrix.job_name }}
+          path: ${{ github.workspace }}/build/**/*
+          retention-days: 1
+
+  release:
+   name: Create Release
+   needs: build
+   runs-on: ubuntu-latest
+   permissions:
+     contents: write
+   steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Generate version tag and metadata
+        id: version
+        run: |
+          # Generate version from commit info
+          DATE=$(date +%Y.%m.%d)
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          VERSION="v${DATE}-${SHORT_SHA}"
+          COMMIT_URL="https://github.com/${{ github.repository }}/commit/${{ github.sha }}"
+          
+          # Determine trigger type
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            TRIGGER_TYPE="Manual"
+          else
+            TRIGGER_TYPE="Auto"
+          fi
+          
+          echo "tag=$VERSION" >> $GITHUB_OUTPUT
+          echo "date=$DATE" >> $GITHUB_OUTPUT
+          echo "short_sha=$SHORT_SHA" >> $GITHUB_OUTPUT
+          echo "commit_url=$COMMIT_URL" >> $GITHUB_OUTPUT
+          echo "trigger_type=$TRIGGER_TYPE" >> $GITHUB_OUTPUT
+          echo "is_tag=false" >> $GITHUB_OUTPUT
+          
+      - name: Download All Artifacts
+        uses: actions/download-artifact@v4
+        with:
+           path: artifacts
+          #  pattern: rclone-*
+           merge-multiple: true
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: ${{ steps.version.outputs.trigger_type }} Release ${{ steps.version.outputs.date }} (${{ steps.version.outputs.short_sha }})
+          body: |
+            **${{ steps.version.outputs.trigger_type }} Release**
+            
+            📅 **Date:** ${{ steps.version.outputs.date }}
+            🔗 **Commit:** [${{ steps.version.outputs.short_sha }}](${{ steps.version.outputs.commit_url }})
+            🚀 **Trigger:** ${{ steps.version.outputs.trigger_type }} (${{ github.event_name }})
+            
+            ---
+            
+          files: artifacts/**/rclone*
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
