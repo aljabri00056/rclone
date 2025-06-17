@@ -14,8 +14,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/rclone/rclone/backend/teldrive/api"
-	"github.com/rclone/rclone/fs/operations"
-	"github.com/rclone/rclone/lib/pool"
+	// "github.com/rclone/rclone/fs/operations"
+	// "github.com/rclone/rclone/lib/pool"
 	"github.com/rclone/rclone/lib/rest"
 
 	"github.com/rclone/rclone/fs"
@@ -58,13 +58,14 @@ func (w *objectChunkWriter) WriteChunk(ctx context.Context, chunkNumber int, rea
 	chunkNumber += 1
 
 	if existing, ok := w.uploadInfo.existingChunks[chunkNumber]; ok {
-		switch r := reader.(type) {
-		case *operations.ReOpen:
-			r.Account(int(existing.Size))
-		case *pool.RW:
-			r.Account(int(existing.Size))
-		default:
-		}
+		// find a better way to handle this
+		// switch r := reader.(type) {
+		// case *operations.ReOpen:
+		// 	r.Account(int(existing.Size))
+		// case *pool.RW:
+		// 	r.Account(int(existing.Size))
+		// default:
+		// }
 		w.addCompletedPart(existing)
 		return existing.Size, nil
 	}
