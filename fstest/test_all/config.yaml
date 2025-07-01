@@ -481,6 +481,8 @@ backends:
    ignore:
      - TestIntegration/FsMkdir/FsEncoding/punctuation
      - TestIntegration/FsMkdir/FsEncoding/invalid_UTF-8
+   env:
+      - RCLONE_NO_CHECK_CERTIFICATE=true
    fastlist: false
    ignoretests:
      - cmd/bisync
@@ -591,6 +593,11 @@ backends:
  - backend:  "smb"
    remote:   "TestSMBKerberos:rclone"
    fastlist: false
+   env:
+      - KRB5_CONFIG=/tmp/rclone_krb5/krb5.conf
+      - KRB5CCNAME=/tmp/rclone_krb5/ccache
+   ignoretests:
+     - cmd/gitannex
  - backend:  "storj"
    remote:   "TestStorj:"
    fastlist: true

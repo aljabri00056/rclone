@@ -37,6 +37,9 @@ var commandList = []commands{
 	{command: "--name-transform replace=old:new", description: "Replaces occurrences of old with new in the file name."},
 	{command: "--name-transform date={YYYYMMDD}", description: "Appends or prefixes the specified date format."},
 	{command: "--name-transform truncate=N", description: "Truncates the file name to a maximum of N characters."},
+	{command: "--name-transform truncate_keep_extension=N", description: "Truncates the file name to a maximum of N characters while preserving the original file extension."},
+	{command: "--name-transform truncate_bytes=N", description: "Truncates the file name to a maximum of N bytes (not characters)."},
+	{command: "--name-transform truncate_bytes_keep_extension=N", description: "Truncates the file name to a maximum of N bytes (not characters) while preserving the original file extension."},
 	{command: "--name-transform base64encode", description: "Encodes the file name in Base64."},
 	{command: "--name-transform base64decode", description: "Decodes a Base64-encoded file name."},
 	{command: "--name-transform encoder=ENCODING", description: "Converts the file name to the specified encoding (e.g., ISO-8859-1, Windows-1252, Macintosh)."},
@@ -51,7 +54,7 @@ var commandList = []commands{
 	{command: "--name-transform nfd", description: "Converts the file name to NFD Unicode normalization form."},
 	{command: "--name-transform nfkc", description: "Converts the file name to NFKC Unicode normalization form."},
 	{command: "--name-transform nfkd", description: "Converts the file name to NFKD Unicode normalization form."},
-	{command: "--name-transform command=/path/to/my/programfile names.", description: "Executes an external program to transform"},
+	{command: "--name-transform command=/path/to/my/programfile names.", description: "Executes an external program to transform."},
 }
 
 var examples = []example{
@@ -106,7 +109,7 @@ func commandTable() string {
 	for _, c := range commandList {
 		s += fmt.Sprintf("\n| `%s` | %s |", c.command, c.description)
 	}
-	s += "\n\n\n"
+	s += "\n\n"
 	return s
 }
 
@@ -116,23 +119,23 @@ func SprintList() string {
 	var charmaps transform.CharmapChoices
 
 	s := commandTable()
-	s += fmt.Sprintln("Conversion modes:  \n```")
+	s += "Conversion modes:\n\n```\n"
 	for _, v := range algos.Choices() {
-		s += fmt.Sprintln(v + "  ")
+		s += v + "\n"
 	}
-	s += fmt.Sprintln("```")
+	s += "```\n\n"
 
-	s += fmt.Sprintln("Char maps:  \n```")
+	s += "Char maps:\n\n```\n"
 	for _, v := range charmaps.Choices() {
-		s += fmt.Sprintln(v + "  ")
+		s += v + "\n"
 	}
-	s += fmt.Sprintln("```")
+	s += "```\n\n"
 
-	s += fmt.Sprintln("Encoding masks:  \n```")
-	for _, v := range strings.Split(encoder.ValidStrings(), ",") {
-		s += fmt.Sprintln(v + "  ")
+	s += "Encoding masks:\n\n```\n"
+	for _, v := range strings.Split(encoder.ValidStrings(), ", ") {
+		s += v + "\n"
 	}
-	s += fmt.Sprintln("```")
+	s += "```\n\n"
 
 	s += sprintExamples()
 
