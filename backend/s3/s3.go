@@ -2635,7 +2635,7 @@ The parameter should be a date, "2006-01-02", datetime "2006-01-02
 Note that when using this no file write operations are permitted,
 so you can't upload files or delete them.
 
-See [the time option docs](/docs/#time-option) for valid formats.
+See [the time option docs](/docs/#time-options) for valid formats.
 `,
 			Default:  fs.Time{},
 			Advanced: true,
@@ -4458,7 +4458,7 @@ func (f *Fs) list(ctx context.Context, opt listOpt, fn listFn) error {
 		}
 		foundItems += len(resp.Contents)
 		for i, object := range resp.Contents {
-			remote := deref(object.Key)
+			remote := *stringClone(deref(object.Key))
 			if urlEncodeListings {
 				remote, err = url.QueryUnescape(remote)
 				if err != nil {
@@ -5061,8 +5061,11 @@ func (f *Fs) copyMultipart(ctx context.Context, copyReq *s3.CopyObjectInput, dst
 			MultipartUpload: &types.CompletedMultipartUpload{
 				Parts: parts,
 			},
-			RequestPayer: req.RequestPayer,
-			UploadId:     uid,
+			RequestPayer:         req.RequestPayer,
+			SSECustomerAlgorithm: req.SSECustomerAlgorithm,
+			SSECustomerKey:       req.SSECustomerKey,
+			SSECustomerKeyMD5:    req.SSECustomerKeyMD5,
+			UploadId:             uid,
 		})
 		return f.shouldRetry(ctx, err)
 	})
@@ -5911,7 +5914,7 @@ func (o *Object) readMetaData(ctx context.Context) (err error) {
 func s3MetadataToMap(s3Meta map[string]string) map[string]string {
 	meta := make(map[string]string, len(s3Meta))
 	for k, v := range s3Meta {
-		meta[strings.ToLower(k)] = v
+		meta[strings.ToLower(k)] = *stringClone(v)
 	}
 	return meta
 }
@@ -5954,14 +5957,14 @@ func (o *Object) setMetaData(resp *s3.HeadObjectOutput) {
 			o.lastModified = *resp.LastModified
 		}
 	}
-	o.mimeType = deref(resp.ContentType)
+	o.mimeType = strings.Clone(deref(resp.ContentType))
 
 	// Set system metadata
-	o.storageClass = (*string)(&resp.StorageClass)
-	o.cacheControl = resp.CacheControl
-	o.contentDisposition = resp.ContentDisposition
-	o.contentEncoding = resp.ContentEncoding
-	o.contentLanguage = resp.ContentLanguage
+	o.storageClass = stringClone(string(resp.StorageClass))
+	o.cacheControl = stringClonePointer(resp.CacheControl)
+	o.contentDisposition = stringClonePointer(resp.ContentDisposition)
+	o.contentEncoding = stringClonePointer(resp.ContentEncoding)
+	o.contentLanguage = stringClonePointer(resp.ContentLanguage)
 
 	// If decompressing then size and md5sum are unknown
 	if o.fs.opt.Decompress && deref(o.contentEncoding) == "gzip" {
@@ -6446,8 +6449,11 @@ func (w *s3ChunkWriter) Close(ctx context.Context) (err error) {
 			MultipartUpload: &types.CompletedMultipartUpload{
 				Parts: w.completedParts,
 			},
-			RequestPayer: w.multiPartUploadInput.RequestPayer,
-			UploadId:     w.uploadID,
+			RequestPayer:         w.multiPartUploadInput.RequestPayer,
+			SSECustomerAlgorithm: w.multiPartUploadInput.SSECustomerAlgorithm,
+			SSECustomerKey:       w.multiPartUploadInput.SSECustomerKey,
+			SSECustomerKeyMD5:    w.multiPartUploadInput.SSECustomerKeyMD5,
+			UploadId:             w.uploadID,
 		})
 		return w.f.shouldRetry(ctx, err)
 	})
@@ -6476,8 +6482,8 @@ func (o *Object) uploadMultipart(ctx context.Context, src fs.ObjectInfo, in io.R
 	}
 
 	var s3cw *s3ChunkWriter = chunkWriter.(*s3ChunkWriter)
-	gotETag = s3cw.eTag
-	versionID = aws.String(s3cw.versionID)
+	gotETag = *stringClone(s3cw.eTag)
+	versionID = stringClone(s3cw.versionID)
 
 	hashOfHashes := md5.Sum(s3cw.md5s)
 	wantETag = fmt.Sprintf("%s-%d", hex.EncodeToString(hashOfHashes[:]), len(s3cw.completedParts))
@@ -6509,8 +6515,8 @@ func (o *Object) uploadSinglepartPutObject(ctx context.Context, req *s3.PutObjec
 	}
 	lastModified = time.Now()
 	if resp != nil {
-		etag = deref(resp.ETag)
-		versionID = resp.VersionId
+		etag = *stringClone(deref(resp.ETag))
+		versionID = stringClonePointer(resp.VersionId)
 	}
 	return etag, lastModified, versionID, nil
 }
@@ -6562,8 +6568,8 @@ func (o *Object) uploadSinglepartPresignedRequest(ctx context.Context, req *s3.P
 		if date, err := http.ParseTime(resp.Header.Get("Date")); err != nil {
 			lastModified = date
 		}
-		etag = resp.Header.Get("Etag")
-		vID := resp.Header.Get("x-amz-version-id")
+		etag = *stringClone(resp.Header.Get("Etag"))
+		vID := *stringClone(resp.Header.Get("x-amz-version-id"))
 		if vID != "" {
 			versionID = &vID
 		}

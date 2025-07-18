@@ -422,7 +422,7 @@ put them back in again.` >}}
   * Dov Murik <dov.murik@gmail.com>
   * Ameer Dawood <ameer1234567890@gmail.com>
   * Dan Hipschman <dan.hipschman@opendoor.com>
-  * Josh Soref <jsoref@users.noreply.github.com>
+  * Josh Soref <jsoref@users.noreply.github.com> <2119212+jsoref@users.noreply.github.com>
   * David <david@staron.nl>
   * Ingo <ingo@hoffmann.cx>
   * Adam Plánský <adamplansky@users.noreply.github.com> <adamplansky@gmail.com>
@@ -637,7 +637,7 @@ put them back in again.` >}}
   * anonion <aman207@users.noreply.github.com>
   * Ryan Morey <4590343+rmorey@users.noreply.github.com>
   * Simon Bos <simonbos9@gmail.com>
-  * YFdyh000 <yfdyh000@gmail.com>  * Josh Soref <2119212+jsoref@users.noreply.github.com>
+  * YFdyh000 <yfdyh000@gmail.com>
   * Øyvind Heddeland Instefjord <instefjord@outlook.com>
   * Dmitry Deniskin <110819396+ddeniskin@users.noreply.github.com>
   * Alexander Knorr <106825+opexxx@users.noreply.github.com>
@@ -788,7 +788,6 @@ put them back in again.` >}}
   * Adithya Kumar <akumar42@protonmail.com>
   * Tayo-pasedaRJ <138471223+Tayo-pasedaRJ@users.noreply.github.com>
   * Peter Kreuser <logo@kreuser.name>
-  * Piyush <piyushgarg80>
   * fotile96 <fotile96@users.noreply.github.com>
   * Luc Ritchie <luc.ritchie@gmail.com>
   * cynful <cynful@users.noreply.github.com>
@@ -988,3 +987,8 @@ put them back in again.` >}}
   * curlwget <curlwget@icloud.com>
   * $@M@RTH_ <165886349+Samarth1015@users.noreply.github.com>
   * Ali Zein Yousuf <azy5030@gmail.com>
+  * Davide Bizzarri <davide.bizzarri@willhaben.at>
+  * Ross Smith II <ross@smithii.com>
+  * Vikas Bhansali <64532198+vibhansa-msft@users.noreply.github.com>
+  * Sudipto Baral <sudiptobaral.me@gmail.com>
+  * Sam Pegg <samrpegg@gmail.com>
