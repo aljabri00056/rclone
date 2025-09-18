@@ -23,10 +23,6 @@ func init() {
         Description: "Filebin.net",
         NewFs:       NewFs,
         Options: []fs.Option{{
-            Name:     "bin",
-            Help:     "Filebin bin name.",
-            Required: true,
-        }, {
             Name:     "endpoint",
             Help:     "Filebin endpoint URL.",
             Default:  "https://filebin.net",
@@ -36,13 +32,13 @@ func init() {
 }
 
 type Options struct {
-    Bin      string `config:"bin"`
     Endpoint string `config:"endpoint"`
 }
 
 type Fs struct {
     name string
     root string
+    bin  string
     opt  *Options
     srv  *rest.Client
 }
@@ -60,7 +56,6 @@ type BinResponse struct {
 
 type UploadResponse struct {
     UploadedFile File `json:"file"`
-    // BinData      map[string]interface{} `json:"bin"` // Bin details, if needed in the future
 }
 
 type File struct {
@@ -71,7 +66,7 @@ type File struct {
 
 func (f *Fs) Name() string                { return f.name }
 func (f *Fs) Root() string                { return f.root }
-func (f *Fs) String() string              { return fmt.Sprintf("filebin bin %q", f.opt.Bin) }
+func (f *Fs) String() string              { return fmt.Sprintf("filebin bin %q", f.bin) }
 func (f *Fs) Precision() time.Duration    { return fs.ModTimeNotSupported }
 func (f *Fs) Hashes() hash.Set            { return hash.Set(hash.SHA256) }
 func (f *Fs) Features() *fs.Features {
@@ -88,6 +83,18 @@ func NewFs(ctx context.Context, name, rcloneRemotePath string, m configmap.Mappe
         return nil, err
     }
 
+    // Extract bin name from the path
+    // Path format: {bin} only - filebin doesn't support file hierarchy
+    bin := strings.Trim(rcloneRemotePath, "/")
+    
+    if bin == "" {
+        return nil, fmt.Errorf("filebin bin name must be specified in the path, e.g., remoteName:{bin}")
+    }
+
+    if strings.Contains(bin, "/") {
+        return nil, fmt.Errorf("filebin does not support file hierarchy - path should only contain the bin name")
+    }
+
     client := fshttp.NewClient(ctx)
     srv := rest.NewClient(client).SetRoot(opt.Endpoint)
     srv.SetErrorHandler(func(resp *http.Response) error {
@@ -100,7 +107,8 @@ func NewFs(ctx context.Context, name, rcloneRemotePath string, m configmap.Mappe
 
     return &Fs{
         name: name,
-        root: strings.Trim(rcloneRemotePath, "/"),
+        root: "", // Always empty for bucket-based storage
+        bin:  bin,
         opt:  opt,
         srv:  srv,
     }, nil
@@ -116,9 +124,9 @@ func (f *Fs) List(ctx context.Context, dir string) (fs.DirEntries, error) {
         // dir == "". We are asked to list f.root itself.
         // Fetch the entire bin listing to find the f.root file.
         var binInfo BinResponse
-        opts := rest.Opts{Method: "GET", Path: "/" + f.opt.Bin}
+        opts := rest.Opts{Method: "GET", Path: "/" + f.bin}
         if _, err := f.srv.CallJSON(ctx, &opts, nil, &binInfo); err != nil {
-            return nil, fmt.Errorf("failed to list underlying bin %s to check for %s: %w", f.opt.Bin, f.root, err)
+            return nil, fmt.Errorf("failed to list underlying bin %s to check for %s: %w", f.bin, f.root, err)
         }
 
         for _, file := range binInfo.Files {
@@ -144,7 +152,7 @@ func (f *Fs) List(ctx context.Context, dir string) (fs.DirEntries, error) {
     }
 
     var binInfo BinResponse
-    opts := rest.Opts{Method: "GET", Path: "/" + f.opt.Bin}
+    opts := rest.Opts{Method: "GET", Path: "/" + f.bin}
     if _, err := f.srv.CallJSON(ctx, &opts, nil, &binInfo); err != nil {
         return nil, err
     }
@@ -204,7 +212,7 @@ func (f *Fs) Rmdir(ctx context.Context, dir string) error {
     }
 
     // f.root == "", so this Fs represents the bin itself. Delete the bin.
-    opts := rest.Opts{Method: "DELETE", Path: "/" + f.opt.Bin}
+    opts := rest.Opts{Method: "DELETE", Path: "/" + f.bin}
     _, err := f.srv.Call(ctx, &opts)
     return err
 }
@@ -228,7 +236,7 @@ func (o *Object) Open(ctx context.Context, options ...fs.OpenOption) (io.ReadClo
     fs.FixRangeOption(options, o.size)
     opts := rest.Opts{
         Method:  "GET",
-        Path:    "/" + o.fs.opt.Bin + "/" + o.remote,
+        Path:    "/" + o.fs.bin + "/" + o.remote,
         Options: options,
     }
     
@@ -242,7 +250,7 @@ func (o *Object) Open(ctx context.Context, options ...fs.OpenOption) (io.ReadClo
 func (o *Object) Update(ctx context.Context, in io.Reader, src fs.ObjectInfo, options ...fs.OpenOption) error { // MODIFIED
     opts := rest.Opts{
         Method: "POST",
-        Path:   "/" + o.fs.opt.Bin + "/" + o.remote,
+        Path:   "/" + o.fs.bin + "/" + o.remote,
         Body:   in,
     }
 
@@ -269,7 +277,7 @@ func (o *Object) Update(ctx context.Context, in io.Reader, src fs.ObjectInfo, op
 func (o *Object) Remove(ctx context.Context) error {
     opts := rest.Opts{
         Method: "DELETE",
-        Path:   "/" + o.fs.opt.Bin + "/" + o.remote,
+        Path:   "/" + o.fs.bin + "/" + o.remote,
     }
     _, err := o.fs.srv.Call(ctx, &opts)
     return err
