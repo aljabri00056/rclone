@@ -120,8 +120,6 @@ backends:
      - TestCopyURL
      - TestMoveFileWithIgnoreExisting
      - TestCopyFileCompareDest
-     # fs/sync
-     - TestServerSideMoveOverSelf
      #vfs
      - TestFileSetModTime/cache=off,open=false,write=false
      - TestFileSetModTime/cache=off,open=true,write=false
@@ -171,13 +169,11 @@ backends:
    remote:   "TestGoogleCloudStorage:"
    fastlist: true
    ignoretests:
-     - cmd/bisync
      - cmd/gitannex
  - backend:  "googlecloudstorage"
    remote:   "TestGoogleCloudStorage,directory_markers:"
    fastlist: true
    ignoretests:
-     - cmd/bisync
      - cmd/gitannex
  - backend:  "googlephotos"
    remote:   "TestGooglePhotos:"
@@ -324,7 +320,6 @@ backends:
    remote:   "TestSFTPOpenssh:"
    fastlist: false
    ignoretests:
-     - cmd/bisync
      - cmd/gitannex
  - backend:  "sftp"
    remote:   "TestSFTPRclone:"
@@ -432,8 +427,6 @@ backends:
      - TestMultithreadCopyAbort
  - backend:  "azurefiles"
    remote:   "TestAzureFiles:"
-   ignoretests:
-     - cmd/bisync
  - backend:  "pcloud"
    remote:   "TestPcloud:"
    fastlist: true
