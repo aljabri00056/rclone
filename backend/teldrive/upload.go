@@ -14,8 +14,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/rclone/rclone/backend/teldrive/api"
-	// "github.com/rclone/rclone/fs/operations"
-	// "github.com/rclone/rclone/lib/pool"
+	"github.com/rclone/rclone/lib/pool"
 	"github.com/rclone/rclone/lib/rest"
 
 	"github.com/rclone/rclone/fs"
@@ -58,14 +57,15 @@ func (w *objectChunkWriter) WriteChunk(ctx context.Context, chunkNumber int, rea
 	chunkNumber += 1
 
 	if existing, ok := w.uploadInfo.existingChunks[chunkNumber]; ok {
-		// find a better way to handle this
-		// switch r := reader.(type) {
-		// case *operations.ReOpen:
-		// 	r.Account(int(existing.Size))
-		// case *pool.RW:
-		// 	r.Account(int(existing.Size))
-		// default:
-		// }
+		// Read and discard the bytes from the reader to trigger accounting.
+		// The reader (pool.RW or operations.ReOpen) already has accounting configured
+		// via SetAccounting() when it was created by the multipart upload framework,
+		// so calling Read() will automatically account for the bytes.
+		_, err := io.CopyN(io.Discard, reader, existing.Size)
+		if err != nil && err != io.EOF {
+			return 0, fmt.Errorf("failed to skip existing chunk: %w", err)
+		}
+		
 		w.addCompletedPart(existing)
 		return existing.Size, nil
 	}
