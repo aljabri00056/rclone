@@ -14,7 +14,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/rclone/rclone/backend/teldrive/api"
-	"github.com/rclone/rclone/lib/pool"
 	"github.com/rclone/rclone/lib/rest"
 
 	"github.com/rclone/rclone/fs"
