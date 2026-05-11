@@ -116,6 +116,17 @@ points, as you explicitly acknowledge that they should be skipped.`,
 				Advanced: true,
 			},
 			{
+				Name: "skip_specials",
+				Help: `Don't warn about skipped pipes, sockets and device objects.
+
+This flag disables warning messages on skipped pipes, sockets and
+device objects, as you explicitly acknowledge that they should be
+skipped.`,
+				Default:  false,
+				NoPrefix: true,
+				Advanced: true,
+			},
+			{
 				Name: "zero_size_links",
 				Help: `Assume the Stat size of links is zero (and read them instead) (deprecated).
 
@@ -270,6 +281,17 @@ enabled, rclone will no longer update the modtime after copying a file.`,
 				Advanced: true,
 			},
 			{
+				Name: "fatal_if_no_space",
+				Help: `Make out-of-space errors fatal during transfers.
+
+When enabled, an ENOSPC error during a write returns a fatal error so
+that rclone aborts rather than retrying the operation. Useful for
+backup scripts that should halt loudly on a full disk rather than spin
+retrying.`,
+				Default:  false,
+				Advanced: true,
+			},
+			{
 				Name: "time_type",
 				Help: `Set what kind of time is returned.
 
@@ -328,6 +350,7 @@ type Options struct {
 	FollowSymlinks    bool                 `config:"copy_links"`
 	TranslateSymlinks bool                 `config:"links"`
 	SkipSymlinks      bool                 `config:"skip_links"`
+	SkipSpecials      bool                 `config:"skip_specials"`
 	UTFNorm           bool                 `config:"unicode_normalization"`
 	NoCheckUpdated    bool                 `config:"no_check_updated"`
 	NoUNC             bool                 `config:"nounc"`
@@ -337,6 +360,7 @@ type Options struct {
 	NoPreAllocate     bool                 `config:"no_preallocate"`
 	NoSparse          bool                 `config:"no_sparse"`
 	NoSetModTime      bool                 `config:"no_set_modtime"`
+	FatalIfNoSpace    bool                 `config:"fatal_if_no_space"`
 	TimeType          timeType             `config:"time_type"`
 	Hashes            fs.CommaSepList      `config:"hashes"`
 	Enc               encoder.MultiEncoder `config:"encoding"`
@@ -1058,12 +1082,11 @@ func (f *Fs) Hashes() hash.Set {
 var commandHelp = []fs.CommandHelp{
 	{
 		Name:  "noop",
-		Short: "A null operation for testing backend commands",
-		Long: `This is a test command which has some options
-you can try to change the output.`,
+		Short: "A null operation for testing backend commands.",
+		Long:  `This is a test command which has some options you can try to change the output.`,
 		Opts: map[string]string{
-			"echo":  "echo the input arguments",
-			"error": "return an error based on option value",
+			"echo":  "Echo the input arguments.",
+			"error": "Return an error based on option value.",
 		},
 	},
 }
@@ -1157,7 +1180,7 @@ func (o *Object) Hash(ctx context.Context, r hash.Type) (string, error) {
 			var fd *os.File
 			fd, err = file.Open(o.path)
 			if fd != nil {
-				in = newFadviseReadCloser(o, fd, 0, 0)
+				in = fd
 			}
 		} else {
 			in, err = o.openTranslatedLink(0, -1)
@@ -1246,7 +1269,9 @@ func (o *Object) Storable() bool {
 		}
 		return false
 	} else if mode&(os.ModeNamedPipe|os.ModeSocket|os.ModeDevice) != 0 {
-		fs.Logf(o, "Can't transfer non file/directory")
+		if !o.fs.opt.SkipSpecials {
+			fs.Logf(o, "Can't transfer non file/directory")
+		}
 		return false
 	} else if mode&os.ModeDir != 0 {
 		// fs.Debugf(o, "Skipping directory")
@@ -1361,7 +1386,7 @@ func (o *Object) Open(ctx context.Context, options ...fs.OpenOption) (in io.Read
 	if err != nil {
 		return
 	}
-	wrappedFd := readers.NewLimitedReadCloser(newFadviseReadCloser(o, fd, offset, limit), limit)
+	wrappedFd := readers.NewLimitedReadCloser(fd, limit)
 	if offset != 0 {
 		// seek the object
 		_, err = fd.Seek(offset, io.SeekStart)
@@ -1397,8 +1422,19 @@ func (nwc nopWriterCloser) Close() error {
 	return nil
 }
 
+// isDiskFullError returns true if err indicates the underlying filesystem
+// has run out of space.
+func isDiskFullError(err error) bool {
+	return errors.Is(err, file.ErrDiskFull) || fserrors.IsErrNoSpace(err)
+}
+
 // Update the object from in with modTime and size
 func (o *Object) Update(ctx context.Context, in io.Reader, src fs.ObjectInfo, options ...fs.OpenOption) (err error) {
+	defer func() {
+		if err != nil && o.fs.opt.FatalIfNoSpace && isDiskFullError(err) {
+			err = fserrors.FatalError(err)
+		}
+	}()
 	var out io.WriteCloser
 	var hasher *hash.MultiHasher
 

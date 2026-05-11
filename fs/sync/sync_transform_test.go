@@ -13,6 +13,7 @@ import (
 
 	_ "github.com/rclone/rclone/backend/all"
 	"github.com/rclone/rclone/fs"
+	"github.com/rclone/rclone/fs/accounting"
 	"github.com/rclone/rclone/fs/filter"
 	"github.com/rclone/rclone/fs/operations"
 	"github.com/rclone/rclone/fs/walk"
@@ -431,7 +432,10 @@ func TestTransformFile(t *testing.T) {
 
 	err = transform.SetOptions(ctx, "all,trimprefix=tic", "all,trimprefix=tac")
 	require.NoError(t, err)
-	err = operations.TransformFile(ctx, r.Fremote, "tictactoe/tictactoe/tictactoe.txt")
+	// Retry to wait for eventual consistency.
+	err = fstest.Retry(t, "TransformFile", func() error {
+		return operations.TransformFile(ctx, r.Fremote, "tictactoe/tictactoe/tictactoe.txt")
+	})
 	require.NoError(t, err)
 	r.CheckLocalListing(t, []fstest.Item{}, []string{})
 	r.CheckRemoteListing(t, []fstest.Item{fstest.NewItem("toe/toe/toe.txt", "hello world", t1)}, []string{"tictacempty_dir", "tictactoe", "tictactoe/tictactoe", "toe", "toe/toe"})
@@ -461,7 +465,10 @@ func TestManualTransformFile(t *testing.T) {
 
 	err = transform.SetOptions(ctx, "all,trimprefix=tic", "all,trimprefix=tac")
 	require.NoError(t, err)
-	err = operations.TransformFile(ctx, r.Fremote, "tictactoe/tictactoe/tictactoe.txt")
+	// Retry to wait for eventual consistency.
+	err = fstest.Retry(t, "TransformFile", func() error {
+		return operations.TransformFile(ctx, r.Fremote, "tictactoe/tictactoe/tictactoe.txt")
+	})
 	require.NoError(t, err)
 	r.CheckLocalListing(t, []fstest.Item{}, []string{})
 	r.CheckRemoteListing(t, []fstest.Item{fstest.NewItem("toe/toe/toe.txt", "hello world", t1)}, []string{"tictacempty_dir", "tictactoe", "tictactoe/tictactoe", "toe", "toe/toe"})
@@ -507,6 +514,7 @@ func TestError(t *testing.T) {
 	err = Sync(ctx, r.Fremote, r.Flocal, true)
 	// testLoggerVsLsf(ctx, r.Fremote, r.Flocal, operations.GetLoggerOpt(ctx).JSON, t)
 	assert.Error(t, err)
+	accounting.GlobalStats().ResetCounters()
 
 	r.CheckLocalListing(t, []fstest.Item{file1}, []string{"toe", "toe/toe"})
 	r.CheckRemoteListing(t, []fstest.Item{file1}, []string{"toe", "toe/toe"})

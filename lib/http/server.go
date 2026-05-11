@@ -23,6 +23,8 @@ import (
 	"github.com/rclone/rclone/lib/atexit"
 	sdActivation "github.com/rclone/rclone/lib/sdactivation"
 	"github.com/spf13/pflag"
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
 )
 
 // Help returns text describing the http server to add to the command
@@ -51,6 +53,10 @@ for a transfer.
 ` + "`--{{ .Prefix }}max-header-bytes`" + ` controls the maximum number of bytes the server will
 accept in the HTTP header.
 
+` + "`--{{ .Prefix }}response-header`" + ` can be used to set an HTTP header for all responses,
+will overriding existing values. The flag may be repeated to add multiple
+headers. Use the format ` + "`Header-Name: value`" + `.
+
 ` + "`--{{ .Prefix }}baseurl`" + ` controls the URL prefix that rclone serves from.  By default
 rclone will serve from the root.  If you used ` + "`--{{ .Prefix }}baseurl \"/rclone\"`" + ` then
 rclone would serve from a URL starting with "/rclone/".  This is
@@ -60,6 +66,12 @@ inserts leading and trailing "/" on ` + "`--{{ .Prefix }}baseurl`" + `, so ` + "
 identically.
 
 ` + "`--{{ .Prefix }}disable-zip`" + ` may be set to disable the zipping download option.
+
+#### Protocol
+
+The server supports HTTP/1.1 and HTTP/2.  HTTP/2 is used automatically
+for TLS connections.  For non-TLS connections, HTTP/2 cleartext (h2c)
+is supported, allowing HTTP/2 without encryption.
 
 #### TLS (SSL)
 
@@ -90,7 +102,7 @@ It can be configured with .socket and .service unit files as described in
 
 Socket activation can be tested ad-hoc with the ` + "`systemd-socket-activate`" + `command
 
-` + "```sh" + `
+` + "```console" + `
 systemd-socket-activate -l 8000 -- rclone serve
 ` + "```" + `
 
@@ -159,6 +171,10 @@ var ConfigInfo = fs.Options{{
 	Name:    "allow_origin",
 	Default: "",
 	Help:    "Origin which cross-domain request (CORS) can be executed from",
+}, {
+	Name:    "response_header",
+	Default: []string{},
+	Help:    "Set HTTP header for all responses, overriding existing values",
 }}
 
 // Config contains options for the http Server
@@ -173,8 +189,9 @@ type Config struct {
 	TLSCertBody        []byte      `config:"-"`                    // TLS PEM public key certificate body (can also include intermediate/CA certificates), ignores TLSCert
 	TLSKeyBody         []byte      `config:"-"`                    // TLS PEM private key body, ignores TLSKey
 	ClientCA           string      `config:"client_ca"`            // Path to TLS PEM CA file with certificate authorities to verify clients with
-	MinTLSVersion      string      `config:"min_tls_version"`      // MinTLSVersion contains the minimum TLS version that is acceptable.
+	MinTLSVersion      string      `config:"min_tls_version"`      // MinTLSVersion contains the minimum TLS version that is acceptable
 	AllowOrigin        string      `config:"allow_origin"`         // AllowOrigin sets the Access-Control-Allow-Origin header
+	ResponseHeaders    []string    `config:"response_header"`      // Set HTTP header for all responses, overriding existing values
 }
 
 // AddFlagsPrefix adds flags for the httplib
@@ -189,6 +206,7 @@ func (cfg *Config) AddFlagsPrefix(flagSet *pflag.FlagSet, prefix string) {
 	flags.StringVarP(flagSet, &cfg.BaseURL, prefix+"baseurl", "", cfg.BaseURL, "Prefix for URLs - leave blank for root", prefix)
 	flags.StringVarP(flagSet, &cfg.MinTLSVersion, prefix+"min-tls-version", "", cfg.MinTLSVersion, "Minimum TLS version that is acceptable", prefix)
 	flags.StringVarP(flagSet, &cfg.AllowOrigin, prefix+"allow-origin", "", cfg.AllowOrigin, "Origin which cross-domain request (CORS) can be executed from", prefix)
+	flags.StringArrayVarP(flagSet, &cfg.ResponseHeaders, prefix+"response-header", "", cfg.ResponseHeaders, "Set HTTP header for all responses, overriding existing values", prefix)
 }
 
 // AddHTTPFlagsPrefix adds flags for the httplib
@@ -273,11 +291,18 @@ func newInstance(ctx context.Context, s *Server, listener net.Listener, tlsCfg *
 		listener = tls.NewListener(listener, tlsCfg)
 	}
 
+	var handler http.Handler = s.mux
+	// Enable h2c (HTTP/2 cleartext) for non-TLS listeners
+	if tlsCfg == nil {
+		h2s := &http2.Server{}
+		handler = h2c.NewHandler(s.mux, h2s)
+	}
+
 	return &instance{
 		url:      url,
 		listener: listener,
 		httpServer: &http.Server{
-			Handler:           s.mux,
+			Handler:           handler,
 			ReadTimeout:       time.Duration(s.cfg.ServerReadTimeout),
 			WriteTimeout:      time.Duration(s.cfg.ServerWriteTimeout),
 			MaxHeaderBytes:    s.cfg.MaxHeaderBytes,
@@ -333,7 +358,13 @@ func NewServer(ctx context.Context, options ...Option) (*Server, error) {
 		return nil, err
 	}
 
+	responseHeaders, err := fs.ParseHeaders(s.cfg.ResponseHeaders)
+	if err != nil {
+		return nil, err
+	}
+
 	s.mux.Use(MiddlewareCORS(s.cfg.AllowOrigin))
+	s.mux.Use(MiddlewareResponseHeaders(responseHeaders))
 
 	s.initAuth()
 

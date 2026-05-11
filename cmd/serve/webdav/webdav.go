@@ -45,6 +45,10 @@ var OptionsInfo = fs.Options{{
 	Name:    "disable_dir_list",
 	Default: false,
 	Help:    "Disable HTML directory list on GET request for a directory",
+}, {
+	Name:    "disable_zip",
+	Default: false,
+	Help:    "Disable zip download of directories",
 }}.
 	Add(libhttp.ConfigInfo).
 	Add(libhttp.AuthConfigInfo).
@@ -57,6 +61,7 @@ type Options struct {
 	Template       libhttp.TemplateConfig
 	EtagHash       string `config:"etag_hash"`
 	DisableDirList bool   `config:"disable_dir_list"`
+	DisableZip     bool   `config:"disable_zip"`
 }
 
 // Opt is options set by command line flags
@@ -117,6 +122,13 @@ supported hash on the backend or you can use a named hash such as
 "MD5" or "SHA-1". Use the [hashsum](/commands/rclone_hashsum/) command
 to see the full list.
 
+### Gzip compression
+
+The server will compress certain response bodies (text and XML, including
+WebDAV PROPFIND responses) using gzip when the client advertises gzip
+support via the ` + "`Accept-Encoding: gzip`" + ` request header. This reduces
+bandwidth usage.
+
 ### Access WebDAV on Windows
 
 WebDAV shared folder can be mapped as a drive on Windows, however the default
@@ -157,18 +169,31 @@ Create a new DWORD BasicAuthLevel with value 2.
 
 You can serve the webdav on a unix socket like this:
 
-` + "```sh" + `
+` + "```console" + `
 rclone serve webdav --addr unix:///tmp/my.socket remote:path
 ` + "```" + `
 
 and connect to it like this using rclone and the webdav backend:
 
-` + "```sh" + `
+` + "```console" + `
 rclone --webdav-unix-socket /tmp/my.socket --webdav-url http://localhost lsf :webdav:
 ` + "```" + `
 
 Note that there is no authentication on http protocol - this is expected to be
 done by the permissions on the socket.
+
+### Symlinks / Junction points
+
+The webdav protocol does not support symlinks or junction points and
+by default rclone will skip them completely.
+
+You can use ` + "`-L`" + ` to get rclone to follow symlinks or you can
+use ` + "`--local-links`" + ` to make rclone show ` + "`.rclonelink`" + `
+files in place of the symlinks.
+
+**NB** Do not use ` + "`--links`" + ` as since v1.69 this applies to
+the VFS layer too, use ` + "`--local-links`" + ` which only applies to
+the local backend only.
 
 ` + strings.TrimSpace(libhttp.Help(flagPrefix)+libhttp.TemplateHelp(flagPrefix)+libhttp.AuthHelp(flagPrefix)+vfs.Help()+proxy.Help),
 	Annotations: map[string]string{
@@ -218,6 +243,20 @@ type WebDAV struct {
 	etagHashType  hash.Type
 }
 
+func webDAVCompressMiddleware() func(http.Handler) http.Handler {
+	compress := middleware.Compress(5, "text/*", "application/xml")
+	return func(next http.Handler) http.Handler {
+		compressedNext := compress(next)
+		return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+			if r.Header.Get("Range") != "" {
+				next.ServeHTTP(rw, r)
+				return
+			}
+			compressedNext.ServeHTTP(rw, r)
+		})
+	}
+}
+
 // check interface
 var _ webdav.FileSystem = (*WebDAV)(nil)
 
@@ -245,7 +284,7 @@ func newWebDAV(ctx context.Context, f fs.Fs, opt *Options, vfsOpt *vfscommon.Opt
 		// override auth
 		w.opt.Auth.CustomAuthFn = w.auth
 	} else {
-		w._vfs = vfs.New(f, vfsOpt)
+		w._vfs = vfs.New(ctx, f, vfsOpt)
 	}
 
 	w.server, err = libhttp.NewServer(ctx,
@@ -270,6 +309,7 @@ func newWebDAV(ctx context.Context, f fs.Fs, opt *Options, vfsOpt *vfscommon.Opt
 
 	router := w.server.Router()
 	router.Use(
+		webDAVCompressMiddleware(),
 		middleware.SetHeader("Accept-Ranges", "bytes"),
 		middleware.SetHeader("Server", "rclone/"+fs.Version),
 	)
@@ -408,6 +448,24 @@ func (w *WebDAV) serveDir(rw http.ResponseWriter, r *http.Request, dirRemote str
 		return
 	}
 	dir := node.(*vfs.Dir)
+
+	if r.URL.Query().Get("download") == "zip" && !w.opt.DisableZip {
+		fs.Infof(dirRemote, "%s: Zipping directory", r.RemoteAddr)
+		zipName := path.Base(dirRemote)
+		if dirRemote == "" {
+			zipName = "root"
+		}
+		rw.Header().Set("Content-Disposition", "attachment; filename=\""+zipName+".zip\"")
+		rw.Header().Set("Content-Type", "application/zip")
+		rw.Header().Set("Last-Modified", time.Now().UTC().Format(http.TimeFormat))
+		err := vfs.CreateZip(ctx, dir, rw)
+		if err != nil {
+			serve.Error(ctx, dirRemote, rw, "Failed to create zip", err)
+			return
+		}
+		return
+	}
+
 	dirEntries, err := dir.ReadDirAll()
 
 	if err != nil {
@@ -417,6 +475,7 @@ func (w *WebDAV) serveDir(rw http.ResponseWriter, r *http.Request, dirRemote str
 
 	// Make the entries for display
 	directory := serve.NewDirectory(dirRemote, w.server.HTMLTemplate())
+	directory.DisableZip = w.opt.DisableZip
 	for _, node := range dirEntries {
 		if vfscommon.Opt.NoModTime {
 			directory.AddHTMLEntry(node.Path(), node.IsDir(), node.Size(), time.Time{})

@@ -250,9 +250,7 @@ func (ts *TokenSource) reReadToken() (changed bool) {
 		return false
 	}
 
-	if !newToken.Valid() {
-		fs.Debugf(ts.name, "Loaded invalid token from config file - ignoring")
-	} else {
+	if newToken.Valid() {
 		fs.Debugf(ts.name, "Loaded fresh token from config file")
 		changed = true
 	}
@@ -264,6 +262,8 @@ func (ts *TokenSource) reReadToken() (changed bool) {
 	if changed {
 		ts.token = newToken
 		ts.tokenSource = nil // invalidate since we changed the token
+	} else {
+		fs.Debugf(ts.name, "No updated token found in the config file")
 	}
 	return changed
 }
@@ -319,6 +319,8 @@ func (ts *TokenSource) Token() (*oauth2.Token, error) {
 		return ts.token, nil
 	}
 
+	fs.Debug(ts.name, "Token expired")
+
 	// Try getting the token a few times
 	for i := 1; i <= maxTries; i++ {
 		// Try reading the token from the config file in case it has
@@ -344,6 +346,7 @@ func (ts *TokenSource) Token() (*oauth2.Token, error) {
 
 		token, err = ts.tokenSource.Token()
 		if err == nil {
+			fs.Debug(ts.name, "Token refresh successful")
 			break
 		}
 		if newErr := maybeWrapOAuthError(err, ts.name); newErr != err {
@@ -621,7 +624,7 @@ func ConfigOAuth(ctx context.Context, name string, m configmap.Mapper, ri *fs.Re
 		// See if already have a token
 		tokenString, ok := m.Get("token")
 		if ok && tokenString != "" {
-			return fs.ConfigConfirm(newState("*oauth-confirm"), true, "config_refresh_token", "Already have a token - refresh?")
+			return fs.ConfigConfirm(newState("*oauth-confirm"), true, "config_refresh_token", "Token already configured - replace it?")
 		}
 		return fs.ConfigGoto(newState("*oauth-confirm"))
 	case "*oauth-confirm":

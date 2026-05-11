@@ -111,6 +111,7 @@ backends:
  - backend:  "cloudinary"
    remote:   "TestCloudinary:"
    fastlist: false
+   listretries: 5
    ignore:
      # fs/operations
      - TestCheckSum
@@ -133,6 +134,9 @@ backends:
  - backend:  "compress"
    remote:   "TestCompress:"
    fastlist: false
+ - backend:  "compress"
+   remote:   "TestCompressZstd:"
+   fastlist: false
  # - backend:  "compress"
  #   remote:   "TestCompressSwift:"
  #   fastlist: false
@@ -154,6 +158,16 @@ backends:
  - backend:  "dropbox"
    remote:   "TestDropbox:"
    fastlist: false
+   ignore:
+     # The bisync normalization test relies on uploading distinct NFC and NFD
+     # versions of the same filename and on having modtime updates that don't
+     # require a delete+re-upload. Dropbox normalizes unicode server-side
+     # (NFD -> NFC) and can't set modtime in place, so the test takes a
+     # different code path that produces a different log without functional
+     # difference - the file state ends up correct either way.
+     - TestBisyncRemoteLocal/normalization
+     - TestBisyncLocalRemote/normalization
+     - TestBisyncRemoteRemote/normalization
  # - backend:  "filefabric"
  #   remote:   "TestFileFabric:"
  #   fastlist: false
@@ -161,6 +175,9 @@ backends:
  - backend:  "gofile"
    remote:   "TestGoFile:"
    fastlist: true
+ - backend: "filen"
+   remote:   "TestFilen:"
+   fastlist: false
  - backend:  "filescom"
    remote:   "TestFilesCom:"
    fastlist: false
@@ -417,14 +434,14 @@ backends:
    fastlist: true
    ignore:
      # It just isn't possible to preserve the existing file with azure blob
-     # and make sure we don't leak uncomitted blocks.
+     # and make sure we don't leak uncommitted blocks.
      - TestMultithreadCopyAbort
  - backend:  "azureblob"
    remote:   "TestAzureBlob,directory_markers:"
    fastlist: true
    ignore:
      # It just isn't possible to preserve the existing file with azure blob
-     # and make sure we don't leak uncomitted blocks.
+     # and make sure we don't leak uncommitted blocks.
      - TestMultithreadCopyAbort
  - backend:  "azurefiles"
    remote:   "TestAzureFiles:"
@@ -473,17 +490,17 @@ backends:
    ignoretests:
      - cmd/bisync
      - cmd/gitannex
- - backend:  "webdav"
-   remote:   "TestWebdavInfiniteScale:"
-   ignore:
-     - TestIntegration/FsMkdir/FsEncoding/punctuation
-     - TestIntegration/FsMkdir/FsEncoding/invalid_UTF-8
-   env:
-      - RCLONE_NO_CHECK_CERTIFICATE=true
-   fastlist: false
-   ignoretests:
-     - cmd/bisync
-     - cmd/gitannex
+ # - backend:  "webdav"
+ #   remote:   "TestWebdavInfiniteScale:"
+ #   ignore:
+ #     - TestIntegration/FsMkdir/FsEncoding/punctuation
+ #     - TestIntegration/FsMkdir/FsEncoding/invalid_UTF-8
+ #   env:
+ #      - RCLONE_NO_CHECK_CERTIFICATE=true
+ #   fastlist: false
+ #   ignoretests:
+ #     - cmd/bisync
+ #     - cmd/gitannex
  - backend:  "webdav"
    remote:   "TestWebdavRclone:"
    ignore:
@@ -567,13 +584,6 @@ backends:
    ignoretests:
      - cmd/bisync
  - backend:  "seafile"
-   remote:   "TestSeafileV6:"
-   fastlist: false
-   ignore:
-     - TestIntegration/FsMkdir/FsPutFiles/FsDirMove
-   ignoretests:
-     - cmd/gitannex
- - backend:  "seafile"
    remote:   "TestSeafile:"
    fastlist: true
    ignoretests:
@@ -621,11 +631,6 @@ backends:
      - TestSyncUTFNorm
    ignoretests:
      - cmd/gitannex
- # - backend: "uptobox"
- #   remote: "TestUptobox:"
- #   fastlist: false
- #   ignore:
- #     - TestRWFileHandleWriteNoWrite
  - backend: "oracleobjectstorage"
    remote: "TestOracleObjectStorage:"
    fastlist: true
@@ -659,3 +664,36 @@ backends:
    ignoretests:
      - cmd/bisync
      - cmd/gitannex
+ - backend: "huaweidrive"
+   remote: "TestHuaweiDrive:"
+   fastlist: true
+   listretries: 5
+ - backend: "shade"
+   remote: "TestShade:"
+   fastlist: false
+
+ - backend: "archive"
+   remote: "TestArchive:"
+   fastlist: false
+   ignoretests:
+     - cmd/bisync
+     - cmd/gitannex
+   ignore:
+     # These are caused by the archive backend returning the underlying objects
+     # with the parent backend having a different precision.
+     - TestServerSideCopyOverSelf
+     - TestServerSideMoveOverSelf
+ - backend: "internxt"
+   remote: "TestInternxt:"
+   fastlist: false
+   listretries: 5
+   ignore:
+     - TestRWFileHandleWriteNoWrite
+ - backend:  "drime"
+   remote:   "TestDrime:"
+   ignoretests:
+     # The TestBisyncRemoteLocal/check_access_filters tests fail due to duplicated objects
+     - cmd/bisync
+   fastlist: false
+   extratime: 2.0
+   listretries: 5

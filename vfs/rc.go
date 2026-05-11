@@ -361,8 +361,9 @@ func rcPollInterval(ctx context.Context, in rc.Params) (out rc.Params, err error
 
 func init() {
 	rc.Add(rc.Call{
-		Path:  "vfs/list",
-		Title: "List active VFSes.",
+		Path:   "vfs/list",
+		NoAuth: true,
+		Title:  "List active VFSes.",
 		Help: `
 This lists the active VFSes.
 
@@ -393,8 +394,9 @@ func rcList(ctx context.Context, in rc.Params) (out rc.Params, err error) {
 
 func init() {
 	rc.Add(rc.Call{
-		Path:  "vfs/stats",
-		Title: "Stats for a VFS.",
+		Path:   "vfs/stats",
+		NoAuth: true,
+		Title:  "Stats for a VFS.",
 		Help: `
 This returns stats for the selected VFS.
 
@@ -441,8 +443,9 @@ func rcStats(ctx context.Context, in rc.Params) (out rc.Params, err error) {
 
 func init() {
 	rc.Add(rc.Call{
-		Path:  "vfs/queue",
-		Title: "Queue info for a VFS.",
+		Path:   "vfs/queue",
+		NoAuth: true,
+		Title:  "Queue info for a VFS.",
 		Help: strings.ReplaceAll(`
 This returns info about the upload queue for the selected VFS.
 
@@ -450,7 +453,7 @@ This is only useful if |--vfs-cache-mode| > off. If you call it when
 the |--vfs-cache-mode| is off, it will return an empty result.
 
     {
-        "queued": // an array of files queued for upload
+        "queue": // an array of files queued for upload
         [
             {
                 "name":      "file",   // string: name (full path) of the file,

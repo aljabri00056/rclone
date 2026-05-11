@@ -105,9 +105,7 @@ func TestMultithreadCalculateNumChunks(t *testing.T) {
 		{size: (1 << 20) - 1, chunkSize: 2, wantNumChunks: 1 << 19},
 	} {
 		t.Run(fmt.Sprintf("%+v", test), func(t *testing.T) {
-			mc := &multiThreadCopyState{
-				size: test.size,
-			}
+			mc := &multiThreadCopyState{}
 			mc.numChunks = calculateNumChunks(test.size, test.chunkSize)
 			assert.Equal(t, test.wantNumChunks, mc.numChunks)
 		})
@@ -136,7 +134,13 @@ func skipIfNotMultithread(ctx context.Context, t *testing.T, r *fstest.Run) int 
 		const fileName = "chunksize-probe"
 		src := object.NewStaticObjectInfo(fileName, time.Now(), int64(100*fs.Mebi), true, nil, nil)
 		info, writer, err := features.OpenChunkWriter(ctx, fileName, src)
-		require.NoError(t, err)
+		if err != nil {
+			// If the probe fails because the file is too small, skip
+			if errors.Is(err, fs.ErrorFileTooSmall) {
+				t.Skipf("probe file too small for multipart upload: %v", err)
+			}
+			require.NoError(t, err)
+		}
 		chunkSize = int(info.ChunkSize)
 		err = writer.Abort(ctx)
 		require.NoError(t, err)
@@ -217,6 +221,9 @@ func TestMultithreadCopy(t *testing.T) {
 				}()
 
 				dst, err = multiThreadCopy(ctx, fDst, fileName, src, test.streams, tr)
+				if errors.Is(err, fs.ErrorFileTooSmall) {
+					t.Skipf("file too small for multipart upload: %v", err)
+				}
 				require.NoError(t, err)
 
 				assert.Equal(t, src.Size(), dst.Size())
@@ -294,7 +301,6 @@ func TestMultithreadCopyAbort(t *testing.T) {
 	ctx := context.Background()
 	chunkSize := skipIfNotMultithread(ctx, t, r)
 	size := 2*chunkSize + 1
-
 	if *fstest.SizeLimit > 0 && int64(size) > *fstest.SizeLimit {
 		t.Skipf("exceeded file size limit %d > %d", size, *fstest.SizeLimit)
 	}
@@ -320,6 +326,9 @@ func TestMultithreadCopyAbort(t *testing.T) {
 	}()
 	wg := new(sync.WaitGroup)
 	dst, err := multiThreadCopy(ctx, r.Fremote, fileName, errorObject{src, int64(size), wg}, 1, tr)
+	if errors.Is(err, fs.ErrorFileTooSmall) {
+		t.Skipf("file too small for multipart upload: %v", err)
+	}
 	assert.Error(t, err)
 	assert.Nil(t, dst)
 

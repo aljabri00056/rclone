@@ -1,7 +1,8 @@
 Rclone @ allows Linux, FreeBSD, macOS and Windows to
 mount any of Rclone's cloud storage systems as a file system with FUSE.
 
-First set up your remote using `rclone config`. Check it works with `rclone ls` etc.
+First set up your remote using `rclone config`. Check it works with `rclone ls`
+etc.
 
 On Linux and macOS, you can run mount in either foreground or background (aka
 daemon) mode. Mount runs in foreground mode by default. Use the `--daemon` flag
@@ -16,7 +17,7 @@ mount, waits until success or timeout and exits with appropriate code
 On Linux/macOS/FreeBSD start the mount like this, where `/path/to/local/mount`
 is an **empty** **existing** directory:
 
-```sh
+```console
 rclone @ remote:path/to/files /path/to/local/mount
 ```
 
@@ -29,10 +30,10 @@ The following examples will mount to an automatically assigned drive,
 to specific drive letter `X:`, to path `C:\path\parent\mount`
 (where parent directory or drive must exist, and mount must **not** exist,
 and is not supported when [mounting as a network drive](#mounting-modes-on-windows)),
-and the last example will mount as network share `\\cloud\remote` and map it to an
-automatically assigned drive:
+and the last example will mount as network share `\\cloud\remote` and map it to
+an automatically assigned drive:
 
-```sh
+```console
 rclone @ remote:path/to/files *
 rclone @ remote:path/to/files X:
 rclone @ remote:path/to/files C:\path\parent\mount
@@ -44,7 +45,7 @@ a SIGINT or SIGTERM signal, the mount should be automatically stopped.
 
 When running in background mode the user will have to stop the mount manually:
 
-```sh
+```console
 # Linux
 fusermount -u /path/to/local/mount
 #... or on some systems
@@ -65,8 +66,8 @@ at all, then 1 PiB is set as both the total and the free size.
 
 ### Installing on Windows
 
-To run rclone @ on Windows, you will need to
-download and install [WinFsp](http://www.secfs.net/winfsp/).
+To run `rclone @ on Windows`, you will need to
+download and install [WinFsp](https://winfsp.dev).
 
 [WinFsp](https://github.com/winfsp/winfsp) is an open-source
 Windows File System Proxy which makes it easy to write user space file
@@ -96,7 +97,7 @@ directory or drive. Using the special value `*` will tell rclone to
 automatically assign the next available drive letter, starting with Z: and moving
 backward. Examples:
 
-```sh
+```console
 rclone @ remote:path/to/files *
 rclone @ remote:path/to/files X:
 rclone @ remote:path/to/files C:\path\parent\mount
@@ -111,7 +112,7 @@ to your @ command. Mounting to a directory path is not supported in
 this mode, it is a limitation Windows imposes on junctions, so the remote must always
 be mounted to a drive letter.
 
-```sh
+```console
 rclone @ remote:path/to/files X: --network-mode
 ```
 
@@ -129,18 +130,18 @@ volume label for the mapped drive, shown in Windows Explorer etc, while the comp
 If you specify a full network share UNC path with `--volname`, this will implicitly
 set the `--network-mode` option, so the following two examples have same result:
 
-```sh
+```console
 rclone @ remote:path/to/files X: --network-mode
 rclone @ remote:path/to/files X: --volname \\server\share
 ```
 
 You may also specify the network share UNC path as the mountpoint itself. Then rclone
 will automatically assign a drive letter, same as with `*` and use that as
-mountpoint, and instead use the UNC path specified as the volume name, as if it were
-specified with the `--volname` option. This will also implicitly set
+mountpoint, and instead use the UNC path specified as the volume name, as if it
+were specified with the `--volname` option. This will also implicitly set
 the `--network-mode` option. This means the following two examples have same result:
 
-```sh
+```console
 rclone @ remote:path/to/files \\cloud\remote
 rclone @ remote:path/to/files * --volname \\cloud\remote
 ```
@@ -268,7 +269,7 @@ does not suffer from the same limitations.
 
 Mounting on macOS can be done either via [built-in NFS server](/commands/rclone_serve_nfs/),
 [macFUSE](https://osxfuse.github.io/) (also known as osxfuse) or
-[FUSE-T](https://www.fuse-t.org/).macFUSE is a traditional FUSE driver utilizing
+[FUSE-T](https://www.fuse-t.org/). macFUSE is a traditional FUSE driver utilizing
 a macOS kernel extension (kext). FUSE-T is an alternative FUSE system which
 "mounts" via an NFSv4 local server.
 
@@ -296,7 +297,7 @@ from the website, rclone will locate the macFUSE libraries without any further i
 If however, macFUSE is installed using the [macports](https://www.macports.org/)
 package manager, the following addition steps are required.
 
-```sh
+```console
 sudo mkdir /usr/local/lib
 cd /usr/local/lib
 sudo ln -s /opt/local/lib/libfuse.2.dylib
@@ -311,18 +312,30 @@ current as  of FUSE-T version 1.0.14.
 
 As per the [FUSE-T wiki](https://github.com/macos-fuse-t/fuse-t/wiki#caveats):
 
-> File access and modification times cannot be set separately as it seems to be an
-> issue with the NFS client which always modifies both. Can be reproduced with
-> 'touch -m' and 'touch -a' commands
+> File access and modification times cannot be set separately as it seems to be
+> an issue with the NFS client which always modifies both. Can be reproduced
+> with `touch -m` and `touch -a` commands
 
-This means that viewing files with various tools, notably macOS Finder, will cause
-rlcone to update the modification time of the file. This may make rclone upload a
-full new copy of the file.
+This means that viewing files with various tools, notably macOS Finder, will
+cause rlcone to update the modification time of the file. This may make rclone
+upload a full new copy of the file.
 
 ##### Read Only mounts
 
 When mounting with `--read-only`, attempts to write to files will fail *silently*
 as opposed to with a clear warning as in macFUSE.
+
+### Mounting on Linux
+
+On newer versions of Ubuntu, you may encounter the following error when running
+`rclone mount`:
+
+> NOTICE: mount helper error: fusermount3: mount failed: Permission denied
+> CRITICAL: Fatal error: failed to mount FUSE fs: fusermount: exit status 1
+
+This may be due to newer [Apparmor](https://wiki.ubuntu.com/AppArmor) restrictions,
+which can be disabled with `sudo aa-disable /usr/bin/fusermount3` (you may need
+to `sudo apt install apparmor-utils` beforehand).
 
 ### Limitations
 
@@ -424,7 +437,7 @@ rclone will detect it and translate command-line arguments appropriately.
 
 Now you can run classic mounts like this:
 
-```sh
+```console
 mount sftp1:subdir /mnt/data -t rclone -o vfs_cache_mode=writes,sftp_key_file=/path/to/pem
 ```
 
@@ -456,7 +469,7 @@ WantedBy=multi-user.target
 
 or add in `/etc/fstab` a line like
 
-```sh
+```console
 sftp1:subdir /mnt/data rclone rw,noauto,nofail,_netdev,x-systemd.automount,args2env,vfs_cache_mode=writes,config=/etc/rclone.conf,cache_dir=/var/cache/rclone 0 0
 ```
 
