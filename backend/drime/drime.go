@@ -15,7 +15,6 @@ should stay under that.
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -148,14 +147,6 @@ this may help to speed up the transfers.`,
 			Default:  4,
 			Advanced: true,
 		}, {
-			Name: "upload_cutoff",
-			Help: `Cutoff for switching to chunked upload.
-
-Any files larger than this will be uploaded in chunks of chunk_size.
-The minimum is 0 and the maximum is 5 GiB.`,
-			Default:  defaultUploadCutoff,
-			Advanced: true,
-		}, {
 			Name:     config.ConfigEncoding,
 			Help:     config.ConfigEncodingHelp,
 			Advanced: true,
@@ -200,16 +191,13 @@ type Options struct {
 
 // Fs represents a remote drime
 type Fs struct {
-	name        string             // name of this remote
-	root        string             // the path we are working on
-	opt         Options            // parsed options
-	features    *fs.Features       // optional features
-	srv         *rest.Client       // the connection to the server
-	dirCache    *dircache.DirCache // Map of directory path to directory id
-	pacer       *fs.Pacer          // pacer for API calls
-	absRootOnce *sync.Once         // protects absRoot computation
-	absRoot     string             // absolute path of f.root from drive root
-	absRootErr  error              // error from computing absRoot, if any
+	name     string             // name of this remote
+	root     string             // the path we are working on
+	opt      Options            // parsed options
+	features *fs.Features       // optional features
+	srv      *rest.Client       // the connection to the server
+	dirCache *dircache.DirCache // Map of directory path to directory id
+	pacer    *fs.Pacer          // pacer for API calls
 }
 
 // Object describes a drime object
@@ -282,6 +270,11 @@ var retryErrorCodes = []int{
 	503, // Service Unavailable
 	504, // Gateway Timeout
 	509, // Bandwidth Limit Exceeded
+	520, // Cloudflare: Web server returns an unknown error
+	521, // Cloudflare: Web server is down
+	522, // Cloudflare: Connection timed out
+	523, // Cloudflare: Origin is unreachable
+	524, // Cloudflare: A timeout occurred
 }
 
 // shouldRetry returns a boolean as to whether this resp and err
@@ -334,62 +327,6 @@ func (f *Fs) getItem(ctx context.Context, id string, dirID string, leaf string) 
 	return info, err
 }
 
-// idToAbsolutePath returns the absolute path (from the user's drive root) of
-// the folder with the given ID.
-//
-// Drime exposes GET /folders/{hash}/path which returns the breadcrumb from
-// drive root down to the folder. The hash format is undocumented but
-// observed to be base64("<id>|") - every item drime returns has a `hash`
-// field of that shape (e.g. id 704791396 => "NzA0NzkxMzk2fA"). The docs
-// example "MTExMzQ0fHBhZA" decodes to "111344|pad", so a non-empty suffix
-// after the pipe is also accepted; if drime ever starts requiring a
-// specific suffix this will break.
-//
-// Returns "" for an empty/zero ID (drive root).
-func (f *Fs) idToAbsolutePath(ctx context.Context, id string) (string, error) {
-	if id == "" || id == "0" {
-		return "", nil
-	}
-	hash := base64.StdEncoding.EncodeToString([]byte(id + "|"))
-	opts := rest.Opts{
-		Method:     "GET",
-		Path:       "/folders/" + hash + "/path",
-		Parameters: url.Values{},
-	}
-	if f.opt.WorkspaceID != "" {
-		opts.Parameters.Set("workspaceId", f.opt.WorkspaceID)
-	}
-	var result api.FolderPathResponse
-	var resp *http.Response
-	err := f.pacer.Call(func() (bool, error) {
-		var err error
-		resp, err = f.srv.CallJSON(ctx, &opts, nil, &result)
-		return shouldRetry(ctx, resp, err)
-	})
-	if err != nil {
-		return "", fmt.Errorf("failed to get folder path for %q: %w", id, err)
-	}
-	parts := make([]string, 0, len(result.Path))
-	for _, item := range result.Path {
-		parts = append(parts, f.opt.Enc.ToStandardName(item.Name))
-	}
-	return path.Join(parts...), nil
-}
-
-// absoluteRoot returns the absolute path from the drive root to the Fs root.
-// Computed once and cached.
-func (f *Fs) absoluteRoot(ctx context.Context) (string, error) {
-	f.absRootOnce.Do(func() {
-		rootID, err := f.dirCache.RootID(ctx, false)
-		if err != nil {
-			f.absRootErr = err
-			return
-		}
-		f.absRoot, f.absRootErr = f.idToAbsolutePath(ctx, rootID)
-	})
-	return f.absRoot, f.absRootErr
-}
-
 // errorHandler parses a non 2xx error response into an error
 func errorHandler(resp *http.Response) error {
 	body, err := rest.ReadBody(resp)
@@ -430,12 +367,11 @@ func NewFs(ctx context.Context, name, root string, m configmap.Mapper) (fs.Fs, e
 	client := fshttp.NewClient(ctx)
 
 	f := &Fs{
-		name:        name,
-		root:        root,
-		opt:         *opt,
-		srv:         rest.NewClient(client).SetRoot(rootURL),
-		pacer:       fs.NewPacer(ctx, pacer.NewDefault(pacer.MinSleep(minSleep), pacer.MaxSleep(maxSleep), pacer.DecayConstant(decayConstant))),
-		absRootOnce: new(sync.Once),
+		name:  name,
+		root:  root,
+		opt:   *opt,
+		srv:   rest.NewClient(client).SetRoot(rootURL),
+		pacer: fs.NewPacer(ctx, pacer.NewDefault(pacer.MinSleep(minSleep), pacer.MaxSleep(maxSleep), pacer.DecayConstant(decayConstant))),
 	}
 	f.features = (&fs.Features{
 		CanHaveEmptyDirectories: true,
@@ -588,7 +524,7 @@ func (f *Fs) listAll(ctx context.Context, dirID string, directoriesOnly bool, fi
 		Parameters: url.Values{},
 	}
 	if dirID != "" {
-		opts.Parameters.Add("parentIds", dirID)
+		opts.Parameters.Add("folderId", dirID)
 	}
 	if directoriesOnly {
 		opts.Parameters.Add("type", api.ItemTypeFolder)
@@ -770,6 +706,11 @@ func (f *Fs) deleteObject(ctx context.Context, id string) error {
 		return shouldRetry(ctx, resp, err)
 	})
 	if err != nil {
+		// If Drime returns 422 with invalid entry ID, the object is already gone.
+		// Map this to a standard not-found error
+		if strings.Contains(err.Error(), "entry ids is invalid") {
+			return fs.ErrorObjectNotFound
+		}
 		return fmt.Errorf("failed to delete item: %w", err)
 	}
 	// Check the individual result codes also
@@ -843,10 +784,16 @@ func (f *Fs) patch(ctx context.Context, id, attribute string, value string) (ite
 		Name: value,
 	}
 	var result api.UpdateItemResponse
+	// The drime origin returns a malformed response (seen by Cloudflare as
+	// a 520) for a literal PUT to this endpoint, so use a POST with Laravel
+	// method spoofing instead - the API routes it to the same handler.
 	opts := rest.Opts{
-		Method:     "PUT",
+		Method:     "POST",
 		Path:       "/file-entries/" + id,
 		Parameters: url.Values{},
+		ExtraHeaders: map[string]string{
+			"X-HTTP-Method-Override": "PUT",
+		},
 	}
 	if f.opt.WorkspaceID != "" {
 		opts.Parameters.Set("workspaceId", f.opt.WorkspaceID)
@@ -1157,14 +1104,10 @@ func (f *Fs) OpenChunkWriter(ctx context.Context, remote string, src fs.ObjectIn
 		return info, nil, err
 	}
 
-	// The /s3/multipart/create and /s3/entries endpoints interpret
-	// relativePath as an absolute path from the drive root, not relative to
-	// parent_id. Resolve our root's absolute path so we can build it.
-	absRoot, err := f.absoluteRoot(ctx)
-	if err != nil {
-		return info, nil, fmt.Errorf("failed to resolve absolute path of root: %w", err)
-	}
-	relPath := f.opt.Enc.FromStandardPath(path.Join(absRoot, remote))
+	// Send just the leaf as relativePath, matching the single-part /uploads
+	// convention. The file is placed by parentId; sending an absolute path
+	// here makes the server build folders from it and drop "0" path segments.
+	relPath := f.opt.Enc.FromStandardName(leaf)
 
 	// Temporary Object under construction
 	o := &Object{
@@ -1598,7 +1541,11 @@ func (o *Object) Update(ctx context.Context, in io.Reader, src fs.ObjectInfo, op
 			fs.Debugf(o, "Removing old object on successful upload")
 			deleteErr := o.fs.deleteObject(ctx, id)
 			if deleteErr != nil {
-				err = fmt.Errorf("failed to delete existing object: %w", deleteErr)
+				if errors.Is(deleteErr, fs.ErrorObjectNotFound) {
+					fs.Debugf(o, "Old object already deleted, safely ignoring")
+				} else {
+					err = fmt.Errorf("failed to delete existing object: %w", deleteErr)
+				}
 			}
 		}()
 	}

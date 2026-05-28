@@ -267,6 +267,13 @@ It is recommended that potentially long running jobs, e.g. `sync/sync`,
 flag to avoid any potential problems with the HTTP request and
 response timing out.
 
+As an alternative to `_async`, you can send the HTTP header
+`Prefer: respond-async` (RFC 7240). This has the same effect as
+`_async = true` but additionally returns HTTP status 202 (Accepted)
+instead of 200, and includes a `Preference-Applied: respond-async`
+response header. The 202 status code makes it easy for clients to distinguish
+an async response from a completed one without inspecting the body.
+
 Starting a job with the `_async` flag:
 
 ```console
@@ -814,6 +821,13 @@ This takes the following parameters:
 
 
 See the [config update](/commands/rclone_config_update/) command for more information on the above.
+
+**Reconnecting a remote:** Calling `config/update` with empty
+`parameters` runs the post-config / authorize flow, equivalent to
+`rclone config reconnect`. This can be used to re-authenticate a
+remote (e.g. refresh an OAuth token):
+
+    rclone rc config/update name=myremote parameters={} opt={"nonInteractive": true}
 
 ### core/bwlimit: Set the bandwidth limit. {#core-bwlimit}
 
